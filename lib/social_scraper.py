@@ -112,79 +112,81 @@ class TwitterScraper:
 
     def fetch_latest_tweets(self, username: str, max_tweets: int = 5) -> list[dict]:
         """Fetch latest tweets from a Twitter/X profile via Nitter RSS."""
-        try:
-            from bs4 import BeautifulSoup
+        import xml.etree.ElementTree as ET
 
-            rss_content = None
-            for instance in self.NITTER_INSTANCES:
-                try:
-                    rss_url = f"{instance}/{username}/rss"
-                    logger.info("Fetching tweets for @%s from %s", username, instance)
-                    resp = requests.get(
-                        rss_url,
-                        timeout=15,
-                        headers={"User-Agent": config.USER_AGENT},
-                    )
-                    if resp.status_code == 200 and "<rss" in resp.text:
-                        rss_content = resp.text
-                        break
-                    else:
-                        logger.warning("Nitter %s returned status %d", instance, resp.status_code)
-                except requests.RequestException as e:
-                    logger.warning("Nitter %s failed: %s", instance, e)
-                    continue
+        rss_content = None
+        used_instance = None
+        for instance in self.NITTER_INSTANCES:
+            try:
+                rss_url = f"{instance}/{username}/rss"
+                logger.info("Trying Nitter RSS: %s", rss_url)
+                resp = requests.get(
+                    rss_url,
+                    timeout=15,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                        "Accept": "application/rss+xml, application/xml, text/xml",
+                    },
+                    allow_redirects=True,
+                )
+                logger.info("Nitter %s status: %d, length: %d", instance, resp.status_code, len(resp.text))
+                if resp.status_code == 200 and "<rss" in resp.text:
+                    rss_content = resp.text
+                    used_instance = instance
+                    break
+                else:
+                    logger.warning("Nitter %s: status %d, has rss: %s", instance, resp.status_code, "<rss" in resp.text)
+            except requests.RequestException as e:
+                logger.warning("Nitter %s failed: %s", instance, e)
+                continue
 
-            if not rss_content:
-                logger.error("All Nitter instances failed for @%s", username)
-                return []
-
-            soup = BeautifulSoup(rss_content, "lxml-xml")
-            items = soup.find_all("item", limit=max_tweets)
-
-            results = []
-            for item in items:
-                title = item.find("title")
-                link = item.find("link")
-                pub_date = item.find("pubDate")
-                description = item.find("description")
-
-                title_text = title.get_text(strip=True) if title else ""
-                link_text = link.get_text(strip=True) if link else ""
-
-                # Nitter links look like https://nitter.net/user/status/123
-                # Convert to x.com link
-                tweet_url = link_text
-                tweet_id = ""
-                if "/status/" in link_text:
-                    tweet_id = link_text.split("/status/")[-1].split("#")[0]
-                    tweet_url = f"https://x.com/{username}/status/{tweet_id}"
-
-                # Use title as tweet text (Nitter puts full tweet text in title)
-                tweet_text = title_text[:500] if title_text else ""
-
-                # Skip retweets (they start with "RT by @username")
-                if tweet_text.startswith("RT by @"):
-                    continue
-
-                # Also skip "R to @" (replies) — optional, remove if you want replies too
-                # if tweet_text.startswith("R to @"):
-                #     continue
-
-                normalized = {
-                    "id": tweet_id or link_text,
-                    "text": tweet_text,
-                    "url": tweet_url,
-                    "timestamp": pub_date.get_text(strip=True) if pub_date else "",
-                    "like_count": 0,
-                    "retweet_count": 0,
-                    "reply_count": 0,
-                    "username": username,
-                }
-                results.append(normalized)
-
-            logger.info("Got %d tweets from @%s via Nitter", len(results), username)
-            return results
-
-        except Exception as e:
-            logger.error("Error fetching tweets for @%s: %s", username, e)
+        if not rss_content:
+            logger.error("All Nitter instances failed for @%s", username)
             return []
+
+        try:
+            root = ET.fromstring(rss_content)
+        except ET.ParseError as e:
+            logger.error("Failed to parse Nitter RSS XML: %s", e)
+            return []
+
+        items = root.findall(".//item")[:max_tweets]
+        logger.info("Parsed %d items from Nitter RSS (%s)", len(items), used_instance)
+
+        results = []
+        for item in items:
+            title_el = item.find("title")
+            link_el = item.find("link")
+            pub_date_el = item.find("pubDate")
+
+            title_text = (title_el.text or "").strip() if title_el is not None else ""
+            link_text = (link_el.text or "").strip() if link_el is not None else ""
+
+            # Nitter links: https://nitter.net/user/status/123#m
+            # Convert to x.com link
+            tweet_url = link_text
+            tweet_id = ""
+            if "/status/" in link_text:
+                tweet_id = link_text.split("/status/")[-1].split("#")[0].split("?")[0]
+                tweet_url = f"https://x.com/{username}/status/{tweet_id}"
+
+            tweet_text = title_text[:500] if title_text else ""
+
+            # Skip retweets
+            if tweet_text.startswith("RT by @"):
+                continue
+
+            normalized = {
+                "id": tweet_id or link_text,
+                "text": tweet_text,
+                "url": tweet_url,
+                "timestamp": (pub_date_el.text or "").strip() if pub_date_el is not None else "",
+                "like_count": 0,
+                "retweet_count": 0,
+                "reply_count": 0,
+                "username": username,
+            }
+            results.append(normalized)
+
+        logger.info("Got %d tweets from @%s via Nitter (%s)", len(results), username, used_instance)
+        return results
