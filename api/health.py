@@ -41,7 +41,7 @@ class handler(BaseHTTPRequestHandler):
                     "last_cycle": social_meta_raw.get("last_cycle_ts"),
                     "cycle_count": int(social_meta_raw.get("cycle_count", 0)),
                     "instagram_profiles": config.INSTAGRAM_PROFILES,
-                    "twitter": "Handled by Twitgram Bot",
+                    "twitter_profiles": config.TWITTER_PROFILES,
                 }
             else:
                 status["social_monitor"] = {"note": "Not yet started"}

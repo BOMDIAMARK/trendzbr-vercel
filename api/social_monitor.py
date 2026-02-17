@@ -1,7 +1,7 @@
 """
 Social Media Monitor — Vercel Serverless Function
-Monitors Instagram (@trendz.bra) for new posts and sends them to a Telegram group.
-Twitter (@trendz_br) is handled by the Twitgram Bot separately.
+Monitors Instagram (@trendz.bra) and Twitter/X (@trendz_br) for new posts
+and sends them to the TRENDZ BRASIL Telegram channel.
 
 Triggered by Vercel Cron every 10 minutes via GET request.
 """
@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from lib import config
 from lib.utils import setup_logging
-from lib.social_scraper import InstagramScraper
+from lib.social_scraper import InstagramScraper, TwitterScraper
 from lib.social_store import SocialStore
 from lib.social_sender import SocialSender
 
@@ -62,22 +62,28 @@ def run_social_cycle() -> dict:
             logger.error("Error monitoring Instagram @%s: %s", username, e)
             errors.append(f"IG @{username}: {e}")
 
-    # --- Twitter Monitoring (disabled — Twitgram handles this) ---
-    # Uncomment below if you want Apify-based Twitter monitoring too:
-    #
-    # from lib.social_scraper import TwitterScraper
-    # tw_scraper = TwitterScraper()
-    # for username in config.TWITTER_PROFILES:
-    #     try:
-    #         tweets = tw_scraper.fetch_latest_tweets(username, max_tweets=5)
-    #         for tweet in tweets:
-    #             tweet_id = str(tweet.get("id", ""))
-    #             if tweet_id and not store.is_tweet_seen(tweet_id):
-    #                 if not is_first:
-    #                     new_tweets.append(tweet)
-    #                 store.add_seen_twitter_ids([tweet_id])
-    #     except Exception as e:
-    #         logger.error("Error monitoring Twitter @%s: %s", username, e)
+    # --- Twitter/X Monitoring ---
+    tw_scraper = TwitterScraper()
+    for username in config.TWITTER_PROFILES:
+        try:
+            tweets = tw_scraper.fetch_latest_tweets(username, max_tweets=5)
+            if not tweets:
+                logger.warning("No tweets returned for Twitter @%s", username)
+                continue
+
+            for tweet in tweets:
+                tweet_id = str(tweet.get("id", ""))
+                if not tweet_id:
+                    continue
+
+                if not store.is_tweet_seen(tweet_id):
+                    if not is_first:
+                        new_tweets.append(tweet)
+                    store.add_seen_twitter_ids([tweet_id])
+
+        except Exception as e:
+            logger.error("Error monitoring Twitter @%s: %s", username, e)
+            errors.append(f"TW @{username}: {e}")
 
     # --- Send notifications ---
     sent_count = 0
@@ -124,7 +130,7 @@ class handler(BaseHTTPRequestHandler):
             "service": "TrendzBR Social Monitor",
             "monitors": {
                 "instagram": config.INSTAGRAM_PROFILES,
-                "twitter": "Handled by Twitgram Bot",
+                "twitter": config.TWITTER_PROFILES,
             },
             "note": "Triggered automatically by Vercel Cron every 10 minutes",
         }).encode())
