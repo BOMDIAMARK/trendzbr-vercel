@@ -42,10 +42,8 @@ class InstagramScraper:
             )
 
             payload = {
-                "directUrls": [f"https://www.instagram.com/{username}/"],
+                "username": [username],
                 "resultsLimit": max_posts,
-                "resultsType": "posts",
-                "searchType": "user",
             }
 
             logger.info("Fetching Instagram posts for @%s via Apify", username)
@@ -96,70 +94,97 @@ class InstagramScraper:
 
 
 class TwitterScraper:
-    """Fetch latest tweets using Apify's Twitter Scraper.
+    """Fetch latest tweets using Nitter RSS feed.
 
-    Note: This is a fallback — the primary Twitter solution is the
-    Twitgram Bot (@TwitGram_Robot) on Telegram which handles forwarding
-    automatically. This scraper is only used if Twitgram is not sufficient.
+    Nitter is an alternative Twitter frontend that provides RSS feeds
+    for any public Twitter/X profile. Free, no API key needed.
     """
 
-    ACTOR_ID = "apify~twitter-scraper"
+    # Nitter instances (fallback list in case one goes down)
+    NITTER_INSTANCES = [
+        "https://nitter.net",
+        "https://nitter.privacydev.net",
+        "https://nitter.poast.org",
+    ]
 
     def __init__(self):
-        self.api_token = config.APIFY_API_TOKEN
+        pass
 
     def fetch_latest_tweets(self, username: str, max_tweets: int = 5) -> list[dict]:
-        """Fetch latest tweets from a Twitter/X profile."""
-        if not self.api_token:
-            logger.error("APIFY_API_TOKEN not configured")
-            return []
-
+        """Fetch latest tweets from a Twitter/X profile via Nitter RSS."""
         try:
-            run_url = (
-                f"https://api.apify.com/v2/acts/{self.ACTOR_ID}/run-sync-get-dataset-items"
-                f"?token={self.api_token}"
-            )
+            from bs4 import BeautifulSoup
 
-            payload = {
-                "twitterHandles": [username],
-                "maxTweets": max_tweets,
-                "mode": "user",
-            }
+            rss_content = None
+            for instance in self.NITTER_INSTANCES:
+                try:
+                    rss_url = f"{instance}/{username}/rss"
+                    logger.info("Fetching tweets for @%s from %s", username, instance)
+                    resp = requests.get(
+                        rss_url,
+                        timeout=15,
+                        headers={"User-Agent": config.USER_AGENT},
+                    )
+                    if resp.status_code == 200 and "<rss" in resp.text:
+                        rss_content = resp.text
+                        break
+                    else:
+                        logger.warning("Nitter %s returned status %d", instance, resp.status_code)
+                except requests.RequestException as e:
+                    logger.warning("Nitter %s failed: %s", instance, e)
+                    continue
 
-            logger.info("Fetching tweets for @%s via Apify", username)
-            resp = requests.post(run_url, json=payload, timeout=120)
-            resp.raise_for_status()
-
-            tweets = resp.json()
-            if not isinstance(tweets, list):
-                logger.warning("Unexpected Apify response format for Twitter")
+            if not rss_content:
+                logger.error("All Nitter instances failed for @%s", username)
                 return []
 
+            soup = BeautifulSoup(rss_content, "lxml-xml")
+            items = soup.find_all("item", limit=max_tweets)
+
             results = []
-            for tweet in tweets:
+            for item in items:
+                title = item.find("title")
+                link = item.find("link")
+                pub_date = item.find("pubDate")
+                description = item.find("description")
+
+                title_text = title.get_text(strip=True) if title else ""
+                link_text = link.get_text(strip=True) if link else ""
+
+                # Nitter links look like https://nitter.net/user/status/123
+                # Convert to x.com link
+                tweet_url = link_text
+                tweet_id = ""
+                if "/status/" in link_text:
+                    tweet_id = link_text.split("/status/")[-1].split("#")[0]
+                    tweet_url = f"https://x.com/{username}/status/{tweet_id}"
+
+                # Use title as tweet text (Nitter puts full tweet text in title)
+                tweet_text = title_text[:500] if title_text else ""
+
+                # Skip retweets (they start with "RT by @username")
+                if tweet_text.startswith("RT by @"):
+                    continue
+
+                # Also skip "R to @" (replies) — optional, remove if you want replies too
+                # if tweet_text.startswith("R to @"):
+                #     continue
+
                 normalized = {
-                    "id": tweet.get("id", ""),
-                    "text": (tweet.get("text", tweet.get("full_text", "")) or "")[:500],
-                    "url": tweet.get("url", ""),
-                    "timestamp": tweet.get("createdAt", ""),
-                    "like_count": tweet.get("likeCount", 0),
-                    "retweet_count": tweet.get("retweetCount", 0),
-                    "reply_count": tweet.get("replyCount", 0),
+                    "id": tweet_id or link_text,
+                    "text": tweet_text,
+                    "url": tweet_url,
+                    "timestamp": pub_date.get_text(strip=True) if pub_date else "",
+                    "like_count": 0,
+                    "retweet_count": 0,
+                    "reply_count": 0,
                     "username": username,
                 }
-                if not normalized["url"] and normalized["id"]:
-                    normalized["url"] = f"https://x.com/{username}/status/{normalized['id']}"
                 results.append(normalized)
 
-            logger.info("Got %d tweets from @%s", len(results), username)
+            logger.info("Got %d tweets from @%s via Nitter", len(results), username)
             return results
 
-        except requests.Timeout:
-            logger.error("Apify request timed out for Twitter @%s", username)
-            return []
-        except requests.RequestException as e:
-            logger.error("Apify request failed for Twitter @%s: %s", username, e)
-            return []
         except Exception as e:
             logger.error("Error fetching tweets for @%s: %s", username, e)
             return []
