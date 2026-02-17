@@ -103,8 +103,9 @@ class TwitterScraper:
     # Nitter instances (fallback list in case one goes down)
     NITTER_INSTANCES = [
         "https://nitter.net",
-        "https://nitter.privacydev.net",
-        "https://nitter.poast.org",
+        "https://nitter.space",
+        "https://nitter.1d4.us",
+        "https://nitter.kavin.rocks",
     ]
 
     def __init__(self):
