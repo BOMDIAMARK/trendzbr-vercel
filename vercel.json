@@ -9,6 +9,10 @@
     {
       "path": "/api/monitor",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/social_monitor",
+      "schedule": "*/10 * * * *"
     }
   ],
   "headers": [

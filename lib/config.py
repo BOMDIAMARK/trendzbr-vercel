@@ -30,6 +30,20 @@ CATEGORIES_URL = "https://www.trendzbr.com/api/market/categories/total?authority
 UPSTASH_REDIS_REST_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "")
 UPSTASH_REDIS_REST_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
 
+# ---- Social Media Monitor (group bot) ----
+
+# Telegram (group bot — separate from market monitor)
+SOCIAL_BOT_TOKEN = os.environ.get("SOCIAL_BOT_TOKEN", "")
+SOCIAL_CHAT_ID = os.environ.get("SOCIAL_CHAT_ID", "")
+SOCIAL_MAX_MESSAGES_PER_CYCLE = 10
+
+# Apify (Instagram scraping)
+APIFY_API_TOKEN = os.environ.get("APIFY_API_TOKEN", "")
+
+# Profiles to monitor
+INSTAGRAM_PROFILES = [p.strip() for p in os.environ.get("INSTAGRAM_PROFILES", "trendz.bra").split(",") if p.strip()]
+TWITTER_PROFILES = [p.strip() for p in os.environ.get("TWITTER_PROFILES", "trendz_br").split(",") if p.strip()]
+
 # Logging
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 

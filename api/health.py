@@ -1,6 +1,6 @@
 """
 Health check endpoint — GET /api/health
-Returns Redis connectivity status and last cycle info.
+Returns Redis connectivity status, last cycle info for both monitors.
 """
 import json
 import os
@@ -14,7 +14,7 @@ from lib import config
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        status = {"service": "TrendzBR Monitor", "status": "ok"}
+        status = {"service": "TrendzBR Platform", "status": "ok"}
 
         try:
             from upstash_redis import Redis
@@ -22,13 +22,30 @@ class handler(BaseHTTPRequestHandler):
                 url=config.UPSTASH_REDIS_REST_URL,
                 token=config.UPSTASH_REDIS_REST_TOKEN,
             )
-            meta_raw = redis.hget("trendzbr:state", "meta")
-            if meta_raw:
-                meta = json.loads(meta_raw)
-                status["last_cycle"] = meta.get("last_cycle_ts")
-                status["cycle_count"] = meta.get("cycle_count")
+
+            # Market monitor status
+            market_meta_raw = redis.hget("trendzbr:state", "meta")
+            if market_meta_raw:
+                meta = json.loads(market_meta_raw)
+                status["market_monitor"] = {
+                    "last_cycle": meta.get("last_cycle_ts"),
+                    "cycle_count": meta.get("cycle_count"),
+                }
             else:
-                status["note"] = "No state found (system may not have run yet)"
+                status["market_monitor"] = {"note": "Not yet started"}
+
+            # Social monitor status
+            social_meta_raw = redis.hgetall("social:meta")
+            if social_meta_raw:
+                status["social_monitor"] = {
+                    "last_cycle": social_meta_raw.get("last_cycle_ts"),
+                    "cycle_count": int(social_meta_raw.get("cycle_count", 0)),
+                    "instagram_profiles": config.INSTAGRAM_PROFILES,
+                    "twitter": "Handled by Twitgram Bot",
+                }
+            else:
+                status["social_monitor"] = {"note": "Not yet started"}
+
             status["redis"] = "connected"
         except Exception as e:
             status["status"] = "error"
