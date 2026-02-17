@@ -3,4 +3,4 @@ beautifulsoup4>=4.12.0
 lxml>=5.1.0
 python-dateutil>=2.8.0
 upstash-redis>=1.4.0
-upstash-qstash>=2.0.0
+qstash>=2.0.0
