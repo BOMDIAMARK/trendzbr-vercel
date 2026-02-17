@@ -1,6 +1,6 @@
 """
 TrendzBR Market Monitor — Vercel Serverless Function
-Triggered by QStash every 5 minutes via POST request.
+Triggered by Vercel Cron every 5 minutes via GET request.
 """
 import json
 import logging
@@ -20,38 +20,6 @@ from lib.redis_store import RedisStore
 from lib.telegram_sender import TelegramSender
 
 logger = setup_logging()
-
-
-def verify_qstash_signature(headers: dict, body: bytes) -> bool:
-    """Verify that the request comes from QStash."""
-    if not config.QSTASH_CURRENT_SIGNING_KEY:
-        logger.warning("QStash signing keys not configured, skipping verification")
-        return True  # Allow in development / manual testing
-
-    signature = headers.get("Upstash-Signature") or headers.get("upstash-signature", "")
-    if not signature:
-        # Check if this is a Vercel cron invocation (daily fallback)
-        if headers.get("x-vercel-cron"):
-            logger.info("Request from Vercel cron (daily fallback)")
-            return True
-        logger.warning("No QStash signature found in headers")
-        return False
-
-    try:
-        from qstash import Receiver
-        receiver = Receiver(
-            current_signing_key=config.QSTASH_CURRENT_SIGNING_KEY,
-            next_signing_key=config.QSTASH_NEXT_SIGNING_KEY,
-        )
-        receiver.verify(
-            body=body.decode("utf-8") if body else "",
-            signature=signature,
-            url=None,  # Skip URL verification
-        )
-        return True
-    except Exception as e:
-        logger.error("QStash signature verification failed: %s", e)
-        return False
 
 
 def run_cycle() -> dict:
@@ -112,21 +80,32 @@ def run_cycle() -> dict:
 class handler(BaseHTTPRequestHandler):
     """Vercel serverless function handler."""
 
+    def do_GET(self):
+        """Handle GET from Vercel Cron or manual check."""
+        # If this is a Vercel cron trigger, run the cycle
+        if self.headers.get("x-vercel-cron"):
+            return self._run_and_respond()
+
+        # Otherwise return info
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({
+            "service": "TrendzBR Monitor",
+            "note": "Triggered automatically by Vercel Cron every 5 minutes",
+        }).encode())
+
     def do_POST(self):
-        """Handle POST from QStash scheduled trigger."""
+        """Handle POST for manual triggers."""
+        # Read body (discard — no QStash verification needed)
         content_len = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(content_len) if content_len > 0 else b""
+        if content_len > 0:
+            self.rfile.read(content_len)
 
-        # Verify QStash signature
-        header_dict = {k: v for k, v in self.headers.items()}
-        if not verify_qstash_signature(header_dict, body):
-            self.send_response(401)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": "Invalid signature"}).encode())
-            return
+        self._run_and_respond()
 
-        # Run monitoring cycle
+    def _run_and_respond(self):
+        """Run monitoring cycle and send response."""
         try:
             result = run_cycle()
             self.send_response(200)
@@ -149,20 +128,6 @@ class handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"error": str(e)}).encode())
-
-    def do_GET(self):
-        """Respond to GET with a simple status (Vercel cron or manual check)."""
-        # If this is a Vercel cron trigger, run the cycle
-        if self.headers.get("x-vercel-cron"):
-            return self.do_POST()
-
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps({
-            "service": "TrendzBR Monitor",
-            "note": "Use POST (via QStash) to trigger a monitoring cycle",
-        }).encode())
 
     def log_message(self, format, *args):
         """Override to use Python logging instead of stderr."""

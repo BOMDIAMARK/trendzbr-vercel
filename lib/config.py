@@ -30,10 +30,6 @@ CATEGORIES_URL = "https://www.trendzbr.com/api/market/categories/total?authority
 UPSTASH_REDIS_REST_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "")
 UPSTASH_REDIS_REST_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
 
-# QStash signing keys
-QSTASH_CURRENT_SIGNING_KEY = os.environ.get("QSTASH_CURRENT_SIGNING_KEY", "")
-QSTASH_NEXT_SIGNING_KEY = os.environ.get("QSTASH_NEXT_SIGNING_KEY", "")
-
 # Logging
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 
