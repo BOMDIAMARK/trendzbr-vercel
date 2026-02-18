@@ -26,7 +26,8 @@ from lib.utils import setup_logging, format_time_remaining
 logger = setup_logging()
 
 # Only respond to this user (owner)
-OWNER_CHAT_ID = config.TELEGRAM_CHAT_ID
+# Accept from env var OR hardcoded owner ID
+OWNER_CHAT_ID = config.TELEGRAM_CHAT_ID or "8572258485"
 
 
 def send_reply(chat_id, text, parse_mode="HTML"):
@@ -325,8 +326,14 @@ class handler(BaseHTTPRequestHandler):
             chat_id = str(message.get("chat", {}).get("id", ""))
             text = (message.get("text", "") or "").strip()
 
-            # Only respond to owner in private chat
+            # Only respond in private chat to the owner
+            chat_type = message.get("chat", {}).get("type", "")
+            if chat_type != "private":
+                self._ok()
+                return
+
             if not chat_id or chat_id != OWNER_CHAT_ID:
+                logger.info("Ignoring message from non-owner chat_id=%s (owner=%s)", chat_id, OWNER_CHAT_ID)
                 self._ok()
                 return
 
