@@ -5,16 +5,7 @@
       "maxDuration": 60
     }
   },
-  "crons": [
-    {
-      "path": "/api/monitor",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/social_monitor",
-      "schedule": "*/10 * * * *"
-    }
-  ],
+  "crons": [],
   "headers": [
     {
       "source": "/api/(.*)",
